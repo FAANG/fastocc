@@ -5,7 +5,7 @@ import os
 from .occupancy import Occupancy
 from .options import Options, NucPosOptions
 from .bam import BamFragmentLoader
-from .hdf5 import HDF5Writer, HDF5Loader
+from .hdf5 import H5WigWriter, H5WigReader
 from .nfr import threshold
 from .range import BedFile, BedTool
 
@@ -43,7 +43,7 @@ def call(bam: str, bed: str, output: str, options: str, nps: bool):
         "bin_size": opts.bin_size
     }
 
-    writer = HDF5Writer.open(output, schema, opts, fragments.bam.chrom_info)
+    writer = H5WigWriter.open(output, schema, opts, fragments.bam.chrom_info)
 
     writer.write(Occupancy.from_fragments(fs) for fs in fragments)
 
@@ -58,7 +58,7 @@ def nfr(fragments: str, output: str, options: str):
     else:
         opts = Options()
 
-    h5 = HDF5Loader.open(fragments, Occupancy)
+    h5 = H5WigReader.open(fragments, Occupancy)
 
     fh = open(output, 'w')
     writer = csv.writer(fh, delimiter="\t")
@@ -74,7 +74,7 @@ def nfr(fragments: str, output: str, options: str):
 @click.option("--output", help="Output file location.", type=str)
 @click.option("--track", help="Track to export.", type=str, default="occ")
 def export(fragments: str, track: str, output: str):
-    h5 = HDF5Loader.open(fragments)
+    h5 = H5WigReader.open(fragments)
 
     h5.export_bigwig(output, track)
 
@@ -83,7 +83,7 @@ def export(fragments: str, track: str, output: str):
 @click.option("--bed", help="Optional list of regions to export.", type=str, default=None)
 @click.option("--output", help="Output file location.", type=str, required=True)
 def dump(fragments: str, bed: str, output: str):
-    h5 = HDF5Loader.open(fragments)
+    h5 = H5WigReader.open(fragments)
 
     opts = Options(bin_size=h5.bin_size)
 
