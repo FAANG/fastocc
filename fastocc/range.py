@@ -103,7 +103,7 @@ class BedFile:
     over ranges.
     """
     bed: BedTool
-    opts: Options=None
+    opts: Options
 
     def __iter__(self) -> Iterator[Range]:
         for i in self.bed:

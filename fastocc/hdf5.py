@@ -1,3 +1,4 @@
+from typing import Any
 import h5py
 import numpy as np
 
@@ -5,13 +6,15 @@ from itertools import groupby
 from dataclasses import asdict
 from pathlib import Path
 
+from ncls import NCLS
+
 from .options import Options
 from .range import Range
-from .io import BigWigWriter
+from .io import BigWigWriter, BedGraphWriter
 
 
-def count_bins(r: Range, size):
-    return (r.end - r.start + 1) // size
+def nbins(r: Range, size):
+    return len(r) // size
 
 
 def write_datasets(grp: h5py.Group, datasets: dict[str, np.ndarray], **kwargs):
@@ -26,34 +29,27 @@ class HDF5Writer:
 
     def __init__(self, file: h5py.File, schema: dict, opts: Options=None, genome_info=None):
         self.file = file
-        self.schema = schema
-
         self.file.create_group("chromosomes")
 
         meta = self.file.create_group("metadata")
         
         meta.create_group("schema")
-        meta["schema"].attrs.update(schema)
-
-
         meta.create_group("opts")
 
         if opts:
             meta["opts"].attrs.update(asdict(opts))
-            self.bin_size = opts.bin_size
-        else:
-            bin_size = schema.get("bin_size", None)
-
-            if not bin_size:
-                raise ValueError("bin_size must be given in opts or schema")
-
-            meta["opts"].attrs.update({"bin_size": bin_size})
-            self.bin_size = bin_size
+            schema["bin_size"] = opts.bin_size
 
         if genome_info:
             meta.create_group("genome_info")
             names, sizes = zip(*genome_info.items())
             write_datasets(meta["genome_info"], {"names": names, "sizes": sizes})
+
+        self.cols = schema["cols"]
+        self.bin_size = schema["bin_size"]
+
+        meta["schema"].attrs.update(schema)
+        self.schema = schema
 
     def write(self, range_data):
         data_by_chr = groupby(range_data, key=lambda fs: fs.range.chr)
@@ -67,44 +63,48 @@ class HDF5Writer:
         the fact that windows are required in order.
         """
         grp = self.file["chromosomes"].create_group(chr)
+        grp.create_group("ranges")
+        grp.create_group("data")
 
         windows = list(windows) # don't exhaust iterator, mem in tiny anyway
 
-        ranges, data = self.encode(windows)
+        ranges, data = self.encode_as_arrays(windows)
 
         # fix for empty // small chrs:
-        total = sum(ranges["bins"])
+        chunks = min(len(data[self.cols[0]]), self.chunks)
 
-        chunks = min(total, self.chunks)
+        print(chunks.__repr__())
 
-        write_datasets(grp, ranges)
+        write_datasets(grp["ranges"], ranges)
 
         # write float arrays with scaleoffset
-        for col, type in zip(self.schema["cols"], self.schema["types"]):
+        for col, type in zip(self.cols, self.schema["types"]):
             if type[:5] == "float" and self.scaleoffset:
-                grp.create_dataset(col, data=data[col], chunks=chunks, scaleoffset=self.scaleoffset)
+                grp["data"].create_dataset(col, data=data[col], chunks=chunks, scaleoffset=self.scaleoffset)
                 data.pop(col)
 
-        write_datasets(grp, data, chunks=chunks, compression="gzip")
+        write_datasets(grp["data"], data, chunks=chunks, compression="gzip")
 
         # print(f"{chr} written.")
 
-    def encode(self, windows) -> (dict, dict):
+    def encode_as_arrays(self, windows) -> (dict, dict):
         """
         Encode a list of binned range data (e.g. BinnedFragments, Occupancy) into
         numpy arrays representing the ranges and the data.
         """
         rs = (w.range for w in windows)
         start, end, bins = zip(
-            *[(r.start, r.end, count_bins(r, self.bin_size)) for r in rs]
+            *[(r.start, r.end, nbins(r, self.bin_size)) for r in rs]
         )
 
         total = sum(bins)
 
+        idx = np.concatenate(([0], np.cumsum(bins)[:-1]), axis=0)
+
         ranges = {
             "start": start,
             "end": end,
-            "bins": bins
+            "idx": idx
         }
 
         data = {}
@@ -112,13 +112,11 @@ class HDF5Writer:
         for col, typ in zip(self.schema["cols"], self.schema["types"]):
             data[col] = np.zeros(total, dtype=np.dtype(typ))
 
-        start = 0
-
         for i, w in enumerate(windows):
-            end = start + bins[i]
+            end = idx[i] + bins[i]
             for col in self.schema["cols"]:
-                data[col][start:end] = getattr(w, col)
-            start = end
+                # TODO add proper error for wrong size: current check is implicit
+                data[col][idx[i]:end] = getattr(w, col)
 
         return ranges, data
 
@@ -140,6 +138,16 @@ class HDF5Loader:
         meta = self.file["metadata"]
 
         self.schema = dict(meta["schema"].attrs)
+        self.bin_size = self.schema["bin_size"]
+        self.cols = self.schema["cols"]
+
+        self.index = {}
+
+        # only load relevant fields
+        if self.cls and hasattr(self.cls, "__dataclass_fields__"):
+            self.cols = [col for col in self.schema["cols"] if col in self.cls.__dataclass_fields__]
+        else:
+            self.cols = self.schema["cols"]
 
         if "genome_info" in meta:
             self.chrom_info = {
@@ -149,6 +157,8 @@ class HDF5Loader:
                     meta["genome_info"]["sizes"]
                 )
             }
+        else:
+            self.chrom_info = None
 
         if "opts" in meta:
             self.opts = Options(**meta["opts"].attrs)
@@ -161,52 +171,88 @@ class HDF5Loader:
 
     def __iter__(self):
         # this maintains correct order if chrom_info is available
-        if self.chrom_info:
-            for chr in self.chrom_info:
-                if chr in self.file[self.data_group]:
-                    yield from self.decode(chr)
-        # fall back to iterating over group
-        else:
-            for chr in self.file[self.data_group]:
-                yield from self.decode(chr)
+        chrs = self.chrom_info or self.file[self.data_group]
 
-    def decode(self, chr):
+        for chr in chrs:
+            if chr in self.file[self.data_group]:
+                yield from self.iter_chrom(chr)
+
+    def build_index(self, chrs=None):
+        if not chrs:
+            chrs = self.file[self.data_group]
+
+        for chr in chrs:
+            grp = self.file[self.data_group][chr]
+
+            self.index[chr] = NCLS(
+                grp["ranges"]["start"][:],
+                grp["ranges"]["end"][:],
+                np.arange(len(grp["ranges"]["start"]))
+            )
+
+    def find_overlaps(self, r: Range):
+        if not r.chr in self.index:
+            self.build_index([r.chr])
+
+        return self.index[r.chr].find_overlap(r.start, r.end)
+
+    def iter_chrom(self, chr):
         grp = self.file[self.data_group][chr]
 
         ranges = [
-            Range(chr, s, e) for s, e in zip(grp["start"], grp["end"])
+            Range(chr, s, e) for s, e in zip(grp["ranges"]["start"], grp["ranges"]["end"])
         ]
 
-        # only load relevant fields
-        if self.cls and hasattr(self.cls, "__dataclass_fields__"):
-            cols = [col for col in self.schema["cols"] if col in self.cls.__dataclass_fields__]
-        else:
-            cols = self.schema["cols"]
-
         # load info to avoid chunk nonsense
-        datasets = {col: grp[col][:] for col in cols}
+        data = {col: grp["data"][col][:] for col in self.cols}
 
-        start = 0
+        idx = np.concatenate((grp["ranges"]["idx"], [len(data[self.cols[0]])]), axis=0)
 
-        for r, n in zip(ranges, grp["bins"][:]):
-            end = start + n
+        for i, r in enumerate(ranges):
+            frm = idx[i]
+            to = idx[i+1]
 
-            data = {"range": r}
+            result = {
+                "range": r,
+                "data": {col: data[col][frm:to] for col in self.cols}
+            }
 
-            for col in cols:
-                data[col] = datasets[col][start:end]
+            yield self.encode(result)
 
-            if self.cls:
-                yield self.cls(**(data | {"opts": self.opts}))
-            else:
-                yield data
+    def iter_range(self, q: Range):
+        grp = self.file[self.data_group][q.chr]
 
-            start = end
+        for s, e, i in self.find_overlaps(q):
+            r = Range(q.chr, s, e)
+            frm = grp["ranges"]["idx"][i]
+            to = frm + nbins(r, self.bin_size)
 
-    def export_bigwig(self, bw, track):
-        bigwig = BigWigWriter(bw, self.chrom_info, self.opts.bin_size)
+            yield self.encode({
+                "range": r,
+                "data": {col: grp["data"][col][frm:to] for col in self.cols}
+            })
+
+    def encode(self, result: dict):
+        if self.cls:
+            return self.cls(range=result["range"], opts=self.opts, **result["data"])
+        else:
+            return result
+
+    def export_bigwig(self, bw: str, track: str):
+        bigwig = BigWigWriter(bw, self.chrom_info, self.bin_size)
 
         for r in self:
-            bigwig.write(r["range"], r[track].astype(np.float32))
+            bigwig.write(r["range"], r["data"][track].astype(np.float32))
 
         bigwig.file.close()
+
+    def export_bedgraph(self, bg: str, regions: list[Range]=None):
+        bedgraph = BedGraphWriter(bg, self.bin_size)
+
+        if regions:
+            for r in regions:
+                for q in self.iter_range(r):
+                    bedgraph.write(q["range"], *q["data"].values())
+        else:
+            for r in self:
+                bedgraph.write(r["range"], *r["data"].values())

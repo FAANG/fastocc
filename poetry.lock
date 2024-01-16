@@ -362,6 +362,20 @@ python-versions = ">=3.5"
 traitlets = "*"
 
 [[package]]
+name = "ncls"
+version = "0.0.68"
+description = "A fast interval tree-like implementation in C, wrapped for the Python ecosystem."
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+numpy = "*"
+
+[package.extras]
+dev = ["black", "bumpver", "isort", "pip-tools", "pytest"]
+
+[[package]]
 name = "nest-asyncio"
 version = "1.5.8"
 description = "Patch asyncio to allow nested event loops"
@@ -739,7 +753,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-ena
 [metadata]
 lock-version = "1.1"
 python-versions = ">= 3.9"
-content-hash = "2133292e32ea5c1ccab7bdeadfba9e7c251daf7cd7f95f9c2600b439682f77f3"
+content-hash = "d743da49cc732da15860a18c30aee48504331962aa6f3645a4e57f64c3041cd2"
 
 [metadata.files]
 appnope = []
@@ -767,6 +781,7 @@ jupyter-core = []
 kiwisolver = []
 matplotlib = []
 matplotlib-inline = []
+ncls = []
 nest-asyncio = []
 numpy = []
 packaging = []

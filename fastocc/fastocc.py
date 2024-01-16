@@ -7,6 +7,7 @@ from .options import Options, NucPosOptions
 from .bam import BamFragmentLoader
 from .hdf5 import HDF5Writer, HDF5Loader
 from .nfr import threshold
+from .range import BedFile, BedTool
 
 
 @click.group()
@@ -49,7 +50,7 @@ def call(bam: str, bed: str, output: str, options: str, nps: bool):
 
 @click.command
 @click.option("--fragments", help="HDF5 file containing `fastocc call` output.", required=True, type=str)
-@click.option("--output", help="Output file location.", type=str)
+@click.option("--output", help="Output file location.", type=str, required=True)
 @click.option("--options", help="Option file location.", type=str)
 def nfr(fragments: str, output: str, options: str):
     if options:
@@ -77,11 +78,24 @@ def export(fragments: str, track: str, output: str):
 
     h5.export_bigwig(output, track)
 
+@click.command
+@click.option("--fragments", help="HDF5 file containing `fastocc call` output.", required=True, type=str)
+@click.option("--bed", help="Optional list of regions to export.", type=str, default=None)
+@click.option("--output", help="Output file location.", type=str, required=True)
+def dump(fragments: str, bed: str, output: str):
+    h5 = HDF5Loader.open(fragments)
 
-def dump(fragments: str, output: str):
-    pass
+    opts = Options(bin_size=h5.bin_size)
+
+    if bed:
+        regions = BedFile(BedTool(bed), opts)
+    else:
+        regions = None
+
+    h5.export_bedgraph(output, regions)
 
 
 fastocc.add_command(call)
 fastocc.add_command(nfr)
 fastocc.add_command(export)
+fastocc.add_command(dump)

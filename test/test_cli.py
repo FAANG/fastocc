@@ -15,7 +15,8 @@ inputs = {
 outputs = {
     "fragments": "data/fragments.h5wig",
     "nfrs": "data/nfrs.bed",
-    "occ": "data/occ.bw"
+    "occ": "data/occ.bw",
+    "bg": "data/fragments.bedgraph"
 }
 
 
@@ -58,6 +59,15 @@ class TestCli:
         assert os.path.exists(outputs["occ"])
         assert result.exit_code == 0
 
+    def test_fastocc_dump(self):
+        if not os.path.exists(outputs["fragments"]):
+            pytest.skip("file 'test.h5wig' required to test `fastocc export`")
+
+        runner = CliRunner()
+        result = runner.invoke(fastocc, ["dump", "--fragments", outputs["fragments"], "--bed", inputs["bed"], "--output", outputs["bg"]])
+
+        assert os.path.exists(outputs["bg"])
+        assert result.exit_code == 0
 
 def test_fastocc_nps():
     if os.path.exists(outputs["fragments"]):

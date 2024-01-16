@@ -22,3 +22,16 @@ class BigWigWriter:
             span=self.bin_size,
             step=self.bin_size,
         )
+
+
+class BedGraphWriter:
+    def __init__(self, f: str, bin_size):
+        self.file = open(f, 'w')
+        self.writer = csv.writer(self.file, delimiter="\t")
+        self.bin_size = bin_size
+
+    def write(self, r: Range, *data):
+        for i, b in enumerate(r.make_bins(self.bin_size)):
+            row = [b.chr, b.start - 1, b.end] + [col[i] for col in data]
+
+            self.writer.writerow(row)
