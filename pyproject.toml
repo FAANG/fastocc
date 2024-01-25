@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fastocc"
-version = "0.9.0"
+version = "1.0.0"
 description = "Fast nucleosome occupancy estimation from paired-end ATAC-seq data"
 authors = ["Malcolm Perry <malcolm@ebi.ac.uk>"]
 
