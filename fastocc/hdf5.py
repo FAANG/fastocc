@@ -190,6 +190,7 @@ class H5WigReader:
 
     """
     data_group = "chromosomes"
+    range_data = "ranges"
 
     def __init__(self, f: h5py.File, cls=None):
         self.file = f
@@ -244,10 +245,15 @@ class H5WigReader:
         for chr in chrs:
             grp = self.file[self.data_group][chr]
 
+            if self.range_data == "":
+                range_data = grp
+            else:
+                range_data = grp[self.range_data]
+
             self.index[chr] = NCLS(
-                grp["ranges"]["start"][:],
-                grp["ranges"]["end"][:],
-                np.arange(len(grp["ranges"]["start"]))
+                range_data["start"][:],
+                range_data["end"][:],
+                np.arange(len(range_data["start"]))
             )
 
     def find_overlaps(self, r: Range):
@@ -259,14 +265,19 @@ class H5WigReader:
     def iter_chrom(self, chr):
         grp = self.file[self.data_group][chr]
 
+        if self.range_data == "":
+            range_data = grp
+        else:
+            range_data = grp[self.range_data]
+
         ranges = [
-            Range(chr, s, e) for s, e in zip(grp["ranges"]["start"], grp["ranges"]["end"])
+            Range(chr, s, e) for s, e in zip(range_data["start"], range_data["end"])
         ]
 
         # load info to avoid chunk nonsense
         data = {col: grp["data"][col][:] for col in self.cols}
 
-        idx = np.concatenate((grp["ranges"]["idx"], [len(data[self.cols[0]])]), axis=0)
+        idx = np.concatenate((range_data["idx"], [len(data[self.cols[0]])]), axis=0)
 
         for i, r in enumerate(ranges):
             frm = idx[i]
@@ -282,9 +293,14 @@ class H5WigReader:
     def iter_range(self, q: Range):
         grp = self.file[self.data_group][q.chr]
 
+        if self.range_data == "":
+            range_data = grp
+        else:
+            range_data = grp[self.range_data]
+
         for s, e, i in self.find_overlaps(q):
             r = Range(q.chr, s, e)
-            frm = grp["ranges"]["idx"][i]
+            frm = range_data["idx"][i]
             to = frm + nbins(r, self.bin_size)
 
             yield self.encode({
