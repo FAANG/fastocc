@@ -49,7 +49,17 @@ class Options:
         return cls(**jsn)
 
 
-class NucPosOptions(Options):
+nuc_pos_options = {
+    "window_size": 11,
+    "nfr_ratio": 1.2,
+    "pseudocount": 2,
+    "pseudocount_nuc": 1,
+    "smooth": True,
+    "gaussian_sd": 2,
+}
+
+
+def NucPosOptions(**kwargs):
     """
     Alternative options to visualise nucleosome positions rather than NFRs, using
     larger windows, a lower NFR ratio, and much weaker regularization towards 0.5
@@ -58,12 +68,9 @@ class NucPosOptions(Options):
     The output is best visualised as -2*(occ-0.5), with 1 representing a well-positioned
     nucleosome, -1 an NFR, and 0 no data (or a disordered/atypical region).
     """
-    window_size: int = 11
-    nfr_ratio: float = 1.2
-    pseudocount: int = 2
-    pseudocount_nuc: int = 1
-    smooth: bool = True
-    gaussian_sd: float = 2
+    kwargs = nuc_pos_options | kwargs
+
+    return Options(**kwargs)
 
 
 def get_options(*args):

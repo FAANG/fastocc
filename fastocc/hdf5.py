@@ -121,8 +121,6 @@ class H5WigWriter:
         # fix for empty // small chrs:
         chunks = min(len(data[self.cols[0]]), self.chunks)
 
-        print(chunks.__repr__())
-
         write_datasets(grp["ranges"], ranges)
 
         # write float arrays with scaleoffset
