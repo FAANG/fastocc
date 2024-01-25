@@ -71,7 +71,7 @@ full time, so you may be asked to contribute, please don't be scared to do this!
 ## Acknowledgements
 
 The development of `fastocc` took place within the 
-[Ensembl Regulation](regulation.ensembl.org) team at
+[Ensembl Regulation](http://www.ensembl.org/info/genome/funcgen/index.html) team at
 EMBL-EBI. The project received funding from the European Union’s Horizon 2020
 programme under the [AQUA-FAANG](https://www.aqua-faang.eu/)
 and [GENE-SWitCH](https://www.gene-switch.eu/) projects.
